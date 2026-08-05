@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA no Servidor - 100% Local</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        .msg { animation: subir .3s ease; }
+        @keyframes subir { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        .chat::-webkit-scrollbar{width:6px}
+        .chat::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}
+        .ouvindo{animation:pulse 1s infinite}
+        @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.7)}50%{box-shadow:0 0 0 12px rgba(239,68,68,0)}}
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-zinc-900 to-slate-900 min-h-screen text-white">
+    <div class="max-w-2xl mx-auto p-4 h-screen flex flex-col">
+        
+        <header class="text-center py-4 border-b border-white/5">
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+                IA NO SERVIDOR
+            </h1>
+            <p class="text-slate-400 text-xs mt-1">Ollama rodando dentro do site • Nada no seu PC</p>
+        </header>
+
+        <div id="chat" class="chat flex-1 overflow-y-auto space-y-3 my-4 p-2">
+            <div class="msg flex justify-start">
+                <div class="bg-white/5 border border-white/10 rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%]">
+                    Olá! Eu sou uma IA rodando diretamente no servidor deste site. Em que posso ajudar?
+                </div>
+            </div>
+        </div>
+
+        <div id="status" class="text-center text-slate-500 text-xs h-4 mb-2"></div>
+
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-3 space-y-3">
+            <div class="flex justify-center">
+                <button id="btnVoz" class="w-12 h-12 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-600 hover:scale-105 transition flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <form id="form" class="flex gap-2">
+                <input id="txt" class="flex-1 bg-black/30 border border-white/10 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="Digite ou fale..." autocomplete="off">
+                <button id="btnEnviar" class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 px-5 rounded-xl font-medium transition">Enviar</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const chat = document.getElementById('chat');
+        const form = document.getElementById('form');
+        const txt = document.getElementById('txt');
+        const btnVoz = document.getElementById('btnVoz');
+        const btnEnviar = document.getElementById('btnEnviar');
+        const status = document.getElementById('status');
+        
+        let historico = [];
+        let gerando = false;
+        let recon = null;
+        let ouvindo = false;
+        const voz = window.speechSynthesis;
+
+        // === VOZ ===
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SR) {
+            recon = new SR();
+            recon.lang = 'pt-BR';
+            recon.onstart = () => { ouvindo = true; btnVoz.classList.add('ouvindo'); status.textContent='Ouvindo...'; };
+            recon.onend = () => { ouvindo = false; btnVoz.classList.remove('ouvindo'); status.textContent=''; };
+            recon.onresult = e => enviar(e.results[0][0].transcript);
+        }
+        btnVoz.onclick = () => { if(gerando) return; ouvindo ? recon.stop() : (voz.cancel(), recon.start()); };
+
+        // === ENVIO ===
+        form.onsubmit = e => { e.preventDefault(); const t = txt.value.trim(); if(t && !gerando) enviar(t); };
+
+        async function enviar(texto) {
+            txt.value = '';
+            voz.cancel();
+            gerando = true;
+            btnEnviar.disabled = true;
+
+            addMsg(texto, 'eu');
+            historico.push({ tipo: 'user', texto });
+            
+            const bolha = addMsg('', 'ia');
+            status.textContent = 'IA pensando...';
+
+            try {
+                const evt = new EventSource(`/chat?${Date.now()}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mensagem: texto, historico })
+                });
+
+                // Infelizmente EventSource não suporta POST, vamos usar fetch com stream
+                evt.close();
+                
+                const resp = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mensagem: texto, historico })
+                });
+
+                const leitor = resp.body.getReader();
+                const dec = new TextDecoder();
+                let buffer = '';
+                let completo = '';
+
+                while(true) {
+                    const { done, value } = await leitor.read();
+                    if(done) break;
+                    buffer += dec.decode(value);
+                    const linhas = buffer.split('\n\n');
+                    buffer = linhas.pop();
+                    
+                    for(const l of linhas) {
+                        if(l.startsWith('data: ')) {
+                            const d = l.slice(6);
+                            if(d === '[FIM]') continue;
+                            try {
+                                const obj = JSON.parse(d);
+                                if(obj.texto) { completo += obj.texto; bolha.textContent = completo; chat.scrollTop=9e9; }
+                            } catch(e){}
+                        }
+                    }
+                }
+
+                historico.push({ tipo: 'assistant', texto: completo });
+                falar(completo);
+
+            } catch(err) {
+                bolha.textContent = 'Erro: ' + err.message;
+            }
+
+            gerando = false;
+            btnEnviar.disabled = false;
+            status.textContent = '';
+        }
+
+        function addMsg(t, tipo) {
+            const d = document.createElement('div');
+            d.className = `msg flex ${tipo==='eu'?'justify-end':'justify-start'}`;
+            const b = document.createElement('div');
+            b.className = tipo==='eu' 
+                ? 'bg-emerald-600 rounded-2xl rounded-tr-none px-4 py-3 max-w-[80%]'
+                : 'bg-white/5 border border-white/10 rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%] whitespace-pre-wrap';
+            b.textContent = t;
+            d.appendChild(b);
+            chat.appendChild(d);
+            chat.scrollTop = 9e9;
+            return b;
+        }
+
+        function falar(t) {
+            if(!voz) return;
+            const u = new SpeechSynthesisUtterance(t);
+            u.lang = 'pt-BR';
+            voz.speak(u);
+        }
+    </script>
+</body>
+</html>
