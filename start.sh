@@ -1,20 +1,19 @@
 #!/bin/bash
+set -e
 
-# Inicia o Ollama em background
+echo "🔧 Ligando Ollama..."
 ollama serve &
 OLLAMA_PID=$!
+sleep 8
 
-# Espera ligar
-sleep 5
+# ✅ MODELO DE 352MB - CABE NO RENDER GRÁTIS!
+if ! ollama list | grep -q "qwen2:0.5b"; then
+    echo "⬇️ Baixando qwen2:0.5b (352MB)..."
+    ollama pull qwen2:0.5b
+else
+    echo "✅ Modelo já existe"
+fi
 
-# BAIXA O MODELO DE IA (só baixa se não tiver ainda)
-echo "=== VERIFICANDO MODELO ==="
-ollama pull llama3.2:1b
-
-# Inicia o site (FORMA SIMPLES QUE SEMPRE FUNCIONA)
-echo "=== INICIANDO SITE ==="
+echo "🚀 Iniciando site..."
 cd /app
-python app.py
-
-# Mata o Ollama ao sair
-kill $OLLAMA_PID
+exec python app.py
