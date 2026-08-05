@@ -75,7 +75,7 @@
         }
         btnVoz.onclick = () => { if(gerando) return; ouvindo ? recon.stop() : (voz.cancel(), recon.start()); };
 
-        // === ENVIO ===
+        // === ENVIO (NOVO - SEM STREAMING, MAIS RÁPIDO NO RENDER) ===
         form.onsubmit = e => { e.preventDefault(); const t = txt.value.trim(); if(t && !gerando) enviar(t); };
 
         async function enviar(texto) {
@@ -87,54 +87,28 @@
             addMsg(texto, 'eu');
             historico.push({ tipo: 'user', texto });
             
-            const bolha = addMsg('', 'ia');
-            status.textContent = 'IA pensando...';
+            const bolha = addMsg('...processando (até 15s)...', 'ia');
+            status.textContent = '⚡ IA trabalhando... aguarde';
 
             try {
-                const evt = new EventSource(`/chat?${Date.now()}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mensagem: texto, historico })
-                });
-
-                // Infelizmente EventSource não suporta POST, vamos usar fetch com stream
-                evt.close();
-                
                 const resp = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ mensagem: texto, historico })
                 });
 
-                const leitor = resp.body.getReader();
-                const dec = new TextDecoder();
-                let buffer = '';
-                let completo = '';
-
-                while(true) {
-                    const { done, value } = await leitor.read();
-                    if(done) break;
-                    buffer += dec.decode(value);
-                    const linhas = buffer.split('\n\n');
-                    buffer = linhas.pop();
-                    
-                    for(const l of linhas) {
-                        if(l.startsWith('data: ')) {
-                            const d = l.slice(6);
-                            if(d === '[FIM]') continue;
-                            try {
-                                const obj = JSON.parse(d);
-                                if(obj.texto) { completo += obj.texto; bolha.textContent = completo; chat.scrollTop=9e9; }
-                            } catch(e){}
-                        }
-                    }
+                const dados = await resp.json();
+                
+                if (dados.resposta) {
+                    bolha.textContent = dados.resposta;
+                    historico.push({ tipo: 'assistant', texto: dados.resposta });
+                    falar(dados.resposta);
+                } else {
+                    bolha.textContent = '❌ Erro: ' + (dados.erro || 'tente novamente');
                 }
 
-                historico.push({ tipo: 'assistant', texto: completo });
-                falar(completo);
-
             } catch(err) {
-                bolha.textContent = 'Erro: ' + err.message;
+                bolha.textContent = '❌ Erro de conexão. Atualize a página e tente de novo.';
             }
 
             gerando = false;
