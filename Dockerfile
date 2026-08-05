@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Instala dependências
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# 🔧 CORREÇÃO: Instala curl E zstd (agora o Ollama precisa!)
+RUN apt-get update && apt-get install -y curl zstd && rm -rf /var/lib/apt/lists/*
 
 # Instala o Ollama DENTRO DO SERVIDOR
 RUN curl -fsSL https://ollama.com/install.sh | sh
@@ -13,7 +13,7 @@ RUN pip install flask requests gunicorn
 WORKDIR /app
 COPY . .
 
-# Baixa o modelo de IA DURANTE A CONSTRUÇÃO (já fica pronto)
+# Permissão para o start.sh
 RUN chmod +x start.sh
 
 EXPOSE 7860
