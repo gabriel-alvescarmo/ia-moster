@@ -1,0 +1,72 @@
+<!-- SITE OLLAMA (conecta no localhost:11434 do usuário) -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA Ollama</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 min-h-screen text-white p-4 max-w-2xl mx-auto flex flex-col h-screen">
+    <h1 class="text-2xl font-bold text-center py-4">OLLAMA WEB</h1>
+    <p class="text-center text-slate-400 text-sm mb-4">
+        Requer: <code class="bg-slate-800 px-2 py-1 rounded">ollama run llama3.2</code> rodando no seu PC
+    </p>
+    
+    <div id="chat" class="flex-1 overflow-y-auto space-y-3 mb-4"></div>
+    
+    <form id="form" class="flex gap-2">
+        <input id="txt" class="flex-1 bg-slate-800 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Mensagem...">
+        <button class="bg-blue-600 hover:bg-blue-700 px-6 rounded-lg font-medium">Enviar</button>
+    </form>
+
+    <script>
+        const MODEL = "llama3.2"; // troque pelo modelo que tiver
+        const chat = document.getElementById('chat');
+        const form = document.getElementById('form');
+        const txt = document.getElementById('txt');
+        let hist = [];
+
+        function addMsg(t, tipo) {
+            const d = document.createElement('div');
+            d.className = `flex ${tipo==='u'?'justify-end':'justify-start'}`;
+            d.innerHTML = `<div class="${tipo==='u'?'bg-blue-600':'bg-slate-800'} rounded-2xl px-4 py-2 max-w-[80%] whitespace-pre-wrap">${t}</div>`;
+            chat.appendChild(d);
+            chat.scrollTop = chat.scrollHeight;
+            return d.querySelector('div');
+        }
+
+        form.onsubmit = async e => {
+            e.preventDefault();
+            const m = txt.value.trim(); if(!m) return;
+            txt.value = '';
+            addMsg(m, 'u');
+            hist.push({role:'user', content:m});
+            const b = addMsg('', 'a');
+
+            try {
+                const r = await fetch('http://localhost:11434/api/chat', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({model: MODEL, messages: hist, stream: true})
+                });
+                const leitor = r.body.getReader();
+                const dec = new TextDecoder();
+                let full = '';
+                while(true) {
+                    const {done, value} = await leitor.read();
+                    if(done) break;
+                    const linhas = dec.decode(value).split('\n').filter(Boolean);
+                    for(const l of linhas) {
+                        const d = JSON.parse(l);
+                        if(d.message?.content) { full += d.message.content; b.textContent = full; }
+                    }
+                }
+                hist.push({role:'assistant', content:full});
+            } catch(err) {
+                b.textContent = "ERRO: Ollama não está rodando ou CORS não ativado.";
+            }
+        };
+    </script>
+</body>
+</html>
